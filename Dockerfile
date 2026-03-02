@@ -5,6 +5,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir feedparser python-telegram-bot==20.7 requests
 
 COPY rss_telegram.py .
+COPY data /app/data
 
 RUN mkdir -p /app/data
 
