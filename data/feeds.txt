@@ -1,1 +1,2 @@
-https://feeds.example.com/rss
+https://www.reuters.com/rssFeed/worldNews
+https://feeds.bbci.co.uk/news/world/middle_east/rss.xml
