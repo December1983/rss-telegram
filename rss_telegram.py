@@ -21,7 +21,11 @@ logger = logging.getLogger(__name__)
 
 # Get environment variables
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
+
+# ✅ Now supports multiple chat IDs/usernames separated by commas
+TELEGRAM_CHAT_ID_RAW = os.environ.get('TELEGRAM_CHAT_ID', '')
+TELEGRAM_CHAT_IDS = [c.strip() for c in TELEGRAM_CHAT_ID_RAW.split(',') if c.strip()]
+
 CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 3600))  # Default: 1 hour
 FEEDS_FILE = os.environ.get('FEEDS_FILE', '/app/data/feeds.txt')
 INCLUDE_DESCRIPTION = os.environ.get('INCLUDE_DESCRIPTION', 'false').lower() == 'true'  # Default: false
@@ -102,8 +106,18 @@ async def send_telegram_message(bot, chat_id, message):
         )
         return True
     except Exception as e:
-        logger.error(f"Error sending notification: {e}")
+        logger.error(f"Error sending notification to {chat_id}: {e}")
         return False
+
+
+async def send_to_all_chats(bot, message: str):
+    """Send a message to all configured chats."""
+    ok_any = False
+    for chat_id in TELEGRAM_CHAT_IDS:
+        ok = await send_telegram_message(bot, chat_id, message)
+        ok_any = ok_any or ok
+        await asyncio.sleep(0.3)
+    return ok_any
 
 
 async def send_grouped_messages(bot, messages_by_feed):
@@ -131,13 +145,13 @@ async def send_grouped_messages(bot, messages_by_feed):
             entry_text += f"\n  {entry['link']}\n\n"
 
             if len(header) + len(entries_text) + len(entry_text) > MAX_MESSAGE_LENGTH:
-                await send_telegram_message(bot, TELEGRAM_CHAT_ID, header + entries_text)
+                await send_to_all_chats(bot, header + entries_text)
                 entries_text = entry_text
             else:
                 entries_text += entry_text
 
         if entries_text:
-            await send_telegram_message(bot, TELEGRAM_CHAT_ID, header + entries_text)
+            await send_to_all_chats(bot, header + entries_text)
 
         await asyncio.sleep(1)
 
@@ -203,14 +217,15 @@ async def main_async():
     logger.info("Starting RSS feed monitoring")
     logger.info(f"Configuration: INCLUDE_DESCRIPTION={INCLUDE_DESCRIPTION}, DISABLE_NOTIFICATION={DISABLE_NOTIFICATION}")
     logger.info(f"Using FEEDS_FILE={FEEDS_FILE}, HISTORY_FILE={HISTORY_FILE}, KEYWORDS={KEYWORDS}")
+    logger.info(f"Using TELEGRAM_CHAT_IDS={TELEGRAM_CHAT_IDS}")
 
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_IDS:
         logger.error("Missing environment variables. Make sure to set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
         return
 
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
-    await send_telegram_message(
-        bot, TELEGRAM_CHAT_ID,
+    await send_to_all_chats(
+        bot,
         "🤖 *RSS Monitoring Bot started!*\nActive feed monitoring. Configuration loaded from file."
     )
 
