@@ -28,8 +28,16 @@ INCLUDE_DESCRIPTION = os.environ.get('INCLUDE_DESCRIPTION', 'false').lower() == 
 DISABLE_NOTIFICATION = os.environ.get('DISABLE_NOTIFICATION', 'false').lower() == 'true'  # Default: false
 MAX_MESSAGE_LENGTH = 4096  # Maximum character limit for Telegram messages
 
-# File to store already sent articles
-HISTORY_FILE = "/app/data/sent_items.json"
+# ✅ Keywords filter (comma-separated). If empty -> no filtering.
+# Default filters for Iran-related content.
+KEYWORDS = [
+    k.strip().lower()
+    for k in os.environ.get('KEYWORDS', 'иран,iran,тегеран,tehran,ormuz,ормуз,персидский залив,persian gulf').split(',')
+    if k.strip()
+]
+
+# File to store already sent articles (can be overridden per service)
+HISTORY_FILE = os.environ.get('HISTORY_FILE', '/app/data/sent_items.json')
 
 
 def strip_html(html_content: str) -> str:
@@ -50,6 +58,11 @@ def load_feeds():
             return feeds
     except FileNotFoundError:
         logger.warning(f"Feed file {FEEDS_FILE} not found. Creating empty file...")
+        # Ensure directory exists (important for containers)
+        try:
+            os.makedirs(os.path.dirname(FEEDS_FILE), exist_ok=True)
+        except Exception:
+            pass
         with open(FEEDS_FILE, 'w') as f:
             f.write("# Add your RSS feeds here, one per line\n")
         return []
@@ -69,8 +82,14 @@ def load_sent_items():
 
 def save_sent_items(sent_items):
     """Save history of sent articles."""
+    # Ensure directory exists (important for containers)
+    try:
+        os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+    except Exception:
+        pass
     with open(HISTORY_FILE, 'w') as f:
         json.dump(sent_items, f)
+
 
 async def send_telegram_message(bot, chat_id, message):
     """Send a Telegram message asynchronously."""
@@ -85,6 +104,7 @@ async def send_telegram_message(bot, chat_id, message):
     except Exception as e:
         logger.error(f"Error sending notification: {e}")
         return False
+
 
 async def send_grouped_messages(bot, messages_by_feed):
     """Send messages grouped by feed."""
@@ -122,6 +142,7 @@ async def send_grouped_messages(bot, messages_by_feed):
         await asyncio.sleep(1)
 
     return True
+
 
 async def check_feeds(bot):
     """Check RSS feeds for new articles."""
@@ -162,17 +183,26 @@ async def check_feeds(bot):
                 if INCLUDE_DESCRIPTION:
                     description = getattr(entry, 'description', '') or getattr(entry, 'summary', '')
 
+                # ✅ Filter by keywords (Iran-only). Checks title + (optional) description.
+                # If INCLUDE_DESCRIPTION is false, description is empty, so filtering is mostly by title.
+                text_to_check = (title + " " + description).lower()
+                if KEYWORDS and not any(keyword in text_to_check for keyword in KEYWORDS):
+                    continue
+
                 messages_by_feed[feed_title].append({'title': title, 'link': link, 'description': description})
                 sent_items[feed_url].append(entry_id)
+
         except Exception as e:
             logger.error(f"Error checking feed {feed_url}: {e}")
 
     await send_grouped_messages(bot, messages_by_feed)
     return sent_items
 
+
 async def main_async():
     logger.info("Starting RSS feed monitoring")
     logger.info(f"Configuration: INCLUDE_DESCRIPTION={INCLUDE_DESCRIPTION}, DISABLE_NOTIFICATION={DISABLE_NOTIFICATION}")
+    logger.info(f"Using FEEDS_FILE={FEEDS_FILE}, HISTORY_FILE={HISTORY_FILE}, KEYWORDS={KEYWORDS}")
 
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.error("Missing environment variables. Make sure to set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
@@ -193,6 +223,7 @@ async def main_async():
 
 def main():
     asyncio.run(main_async())
+
 
 if __name__ == "__main__":
     main()
