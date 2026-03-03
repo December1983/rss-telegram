@@ -1,9 +1,6 @@
-https://ria.ru/export/rss2/archive/index.xml
-https://tass.ru/rss/v2.xml
 https://www.interfax.ru/rss.asp
 https://www.kommersant.ru/rss/news.xml
 https://rssexport.rbc.ru/rbcnews/news/30/full.rss
-https://lenta.ru/rss
 https://www.vedomosti.ru/rss/news
 https://news.ru/rss
 https://rss.dw.com/rdf/rss-ru-all
