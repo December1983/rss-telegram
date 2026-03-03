@@ -4,7 +4,6 @@ https://www.tehrantimes.com/rss
 https://en.mehrnews.com/rss/tp/579
 https://ifpnews.com/feed
 https://feeds.bbci.co.uk/news/world/middle_east/rss.xml
-https://news.google.com/rss/search?q=Iran+war&hl=en-US&gl=US&ceid=US:en
 https://www.aljazeera.com/xml/rss/all.xml
 https://www.theguardian.com/world/middleeast/rss
 http://rss.cnn.com/rss/edition_world.rss
