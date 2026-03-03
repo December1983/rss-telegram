@@ -1,9 +1,8 @@
-https://ria.ru/export/rss2/world/index.xml
-https://tass.ru/rss/v2.xml?sections=mezhdunarodnaya-panorama
+https://ria.ru/export/rss2/archive/index.xml
+https://tass.ru/rss/v2.xml
 https://www.interfax.ru/rss.asp
-https://www.kommersant.ru/RSS/world.xml
+https://www.kommersant.ru/rss/news.xml
 https://rssexport.rbc.ru/rbcnews/news/30/full.rss
-https://feeds.bbci.co.uk/russian/rss.xml
-https://rss.dw.com/rdf/rss-ru-all
-https://news.google.com/rss/search?q=Иран+война&hl=ru&gl=RU&ceid=RU:ru
-https://news.google.com/rss/search?q=Иран+удар+ракеты&hl=ru&gl=RU&ceid=RU:ru
+https://lenta.ru/rss
+https://www.vedomosti.ru/rss/news
+https://news.ru/rss
