@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 import os
-import time
 import json
 import logging
 import feedparser
-from datetime import datetime
 import requests
 import asyncio
 from telegram import Bot
@@ -12,57 +10,110 @@ from telegram.constants import ParseMode
 import re
 import html
 
-# Logging configuration
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Get environment variables
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 
-# ✅ Now supports multiple chat IDs/usernames separated by commas
 TELEGRAM_CHAT_ID_RAW = os.environ.get('TELEGRAM_CHAT_ID', '')
 TELEGRAM_CHAT_IDS = [c.strip() for c in TELEGRAM_CHAT_ID_RAW.split(',') if c.strip()]
 
-CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 3600))  # Default: 1 hour
+CHECK_INTERVAL = int(os.environ.get('CHECK_INTERVAL', 3600))
 FEEDS_FILE = os.environ.get('FEEDS_FILE', '/app/data/feeds.txt')
-INCLUDE_DESCRIPTION = os.environ.get('INCLUDE_DESCRIPTION', 'false').lower() == 'true'  # Default: false
-DISABLE_NOTIFICATION = os.environ.get('DISABLE_NOTIFICATION', 'false').lower() == 'true'  # Default: false
-MAX_MESSAGE_LENGTH = 4096  # Maximum character limit for Telegram messages
+INCLUDE_DESCRIPTION = os.environ.get('INCLUDE_DESCRIPTION', 'false').lower() == 'true'
+DISABLE_NOTIFICATION = os.environ.get('DISABLE_NOTIFICATION', 'false').lower() == 'true'
+MAX_MESSAGE_LENGTH = 4096
 
-# ✅ Keywords filter (comma-separated). If empty -> no filtering.
-# Default filters for Iran-related content.
+# Keywords are ONLY from Railway Variables.
+# If KEYWORDS is empty or not set -> no filtering.
 KEYWORDS = [
     k.strip().lower()
-    for k in os.environ.get('KEYWORDS', 'иран,iran,тегеран,tehran,ormuz,ормуз,персидский залив,persian gulf').split(',')
+    for k in os.environ.get('KEYWORDS', '').split(',')
     if k.strip()
 ]
 
-# File to store already sent articles (can be overridden per service)
 HISTORY_FILE = os.environ.get('HISTORY_FILE', '/app/data/sent_items.json')
+
+# OpenAI translation settings.
+# Translation is OFF by default and works only when TRANSLATE_TO_RU=true.
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')
+TRANSLATE_TO_RU = os.environ.get('TRANSLATE_TO_RU', 'false').lower() == 'true'
 
 
 def strip_html(html_content: str) -> str:
-    """Convert HTML to plain text by removing tags and unescaping entities."""
-    # Remove HTML tags
     text = re.sub(r'<[^>]+>', '', html_content)
-    # Unescape HTML entities and normalize whitespace
     text = html.unescape(text)
     return ' '.join(text.split())
 
 
+def translate_to_russian(text: str) -> str:
+    if not TRANSLATE_TO_RU:
+        return text
+
+    if not OPENAI_API_KEY:
+        logger.error("TRANSLATE_TO_RU=true, but OPENAI_API_KEY is missing")
+        return text
+
+    if not text.strip():
+        return text
+
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": OPENAI_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Переводи на естественный русский язык новости о грузоперевозках, "
+                            "логистике, дорогах, топливе, FMCSA, DOT и trucking industry. "
+                            "Не добавляй комментарии. Не объясняй. Верни только перевод."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": text,
+                    },
+                ],
+                "temperature": 0,
+            },
+            timeout=30,
+        )
+
+        if response.status_code != 200:
+            logger.error(f"OpenAI API error {response.status_code}: {response.text}")
+            return text
+
+        data = response.json()
+        translated = data["choices"][0]["message"]["content"].strip()
+        return translated or text
+
+    except Exception as e:
+        logger.error(f"Translation error: {e}")
+        return text
+
+
 def load_feeds():
-    """Load RSS feeds from configuration file."""
     try:
         with open(FEEDS_FILE, 'r') as f:
-            feeds = [line.strip() for line in f.readlines() if line.strip() and not line.strip().startswith('#')]
+            feeds = [
+                line.strip()
+                for line in f.readlines()
+                if line.strip() and not line.strip().startswith('#')
+            ]
             logger.info(f"Loaded {len(feeds)} feeds from {FEEDS_FILE}")
             return feeds
     except FileNotFoundError:
         logger.warning(f"Feed file {FEEDS_FILE} not found. Creating empty file...")
-        # Ensure directory exists (important for containers)
         try:
             os.makedirs(os.path.dirname(FEEDS_FILE), exist_ok=True)
         except Exception:
@@ -76,7 +127,6 @@ def load_feeds():
 
 
 def load_sent_items():
-    """Load history of already sent articles."""
     try:
         with open(HISTORY_FILE, 'r') as f:
             return json.load(f)
@@ -85,8 +135,6 @@ def load_sent_items():
 
 
 def save_sent_items(sent_items):
-    """Save history of sent articles."""
-    # Ensure directory exists (important for containers)
     try:
         os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     except Exception:
@@ -96,7 +144,6 @@ def save_sent_items(sent_items):
 
 
 async def send_telegram_message(bot, chat_id, message):
-    """Send a Telegram message asynchronously."""
     try:
         await bot.send_message(
             chat_id=chat_id,
@@ -111,7 +158,6 @@ async def send_telegram_message(bot, chat_id, message):
 
 
 async def send_to_all_chats(bot, message: str):
-    """Send a message to all configured chats."""
     ok_any = False
     for chat_id in TELEGRAM_CHAT_IDS:
         ok = await send_telegram_message(bot, chat_id, message)
@@ -121,7 +167,6 @@ async def send_to_all_chats(bot, message: str):
 
 
 async def send_grouped_messages(bot, messages_by_feed):
-    """Send messages grouped by feed."""
     if not messages_by_feed:
         logger.info("No new content to notify")
         return True
@@ -130,16 +175,19 @@ async def send_grouped_messages(bot, messages_by_feed):
         if not entries:
             continue
 
-        header = f"📢 *New content from {feed_title}*\n\n"
+        header_title = translate_to_russian(feed_title)
+        header = f"📢 *New content from {header_title}*\n\n"
         entries_text = ""
 
         for entry in entries:
-            entry_text = f"• *{entry['title']}*\n"
+            title = translate_to_russian(entry['title'])
+            entry_text = f"• *{title}*\n"
 
             if INCLUDE_DESCRIPTION and entry.get('description'):
                 desc = strip_html(entry['description'])
-                if len(desc) > 150:
-                    desc = desc[:147] + '...'
+                if len(desc) > 300:
+                    desc = desc[:297] + '...'
+                desc = translate_to_russian(desc)
                 entry_text += f"  _{desc}_\n"
 
             entry_text += f"\n  {entry['link']}\n\n"
@@ -159,7 +207,6 @@ async def send_grouped_messages(bot, messages_by_feed):
 
 
 async def check_feeds(bot):
-    """Check RSS feeds for new articles."""
     sent_items = load_sent_items()
     feeds = load_feeds()
 
@@ -193,17 +240,21 @@ async def check_feeds(bot):
 
                 title = entry.title if hasattr(entry, 'title') else "No title"
                 link = entry.link if hasattr(entry, 'link') else ""
+
                 description = ""
                 if INCLUDE_DESCRIPTION:
                     description = getattr(entry, 'description', '') or getattr(entry, 'summary', '')
 
-                # ✅ Filter by keywords (Iran-only). Checks title + (optional) description.
-                # If INCLUDE_DESCRIPTION is false, description is empty, so filtering is mostly by title.
-                text_to_check = (title + " " + description).lower()
+                text_to_check = (title + " " + strip_html(description)).lower()
                 if KEYWORDS and not any(keyword in text_to_check for keyword in KEYWORDS):
                     continue
 
-                messages_by_feed[feed_title].append({'title': title, 'link': link, 'description': description})
+                messages_by_feed[feed_title].append({
+                    'title': title,
+                    'link': link,
+                    'description': description
+                })
+
                 sent_items[feed_url].append(entry_id)
 
         except Exception as e:
@@ -215,7 +266,12 @@ async def check_feeds(bot):
 
 async def main_async():
     logger.info("Starting RSS feed monitoring")
-    logger.info(f"Configuration: INCLUDE_DESCRIPTION={INCLUDE_DESCRIPTION}, DISABLE_NOTIFICATION={DISABLE_NOTIFICATION}")
+    logger.info(
+        f"Configuration: INCLUDE_DESCRIPTION={INCLUDE_DESCRIPTION}, "
+        f"DISABLE_NOTIFICATION={DISABLE_NOTIFICATION}, "
+        f"TRANSLATE_TO_RU={TRANSLATE_TO_RU}, "
+        f"OPENAI_MODEL={OPENAI_MODEL}"
+    )
     logger.info(f"Using FEEDS_FILE={FEEDS_FILE}, HISTORY_FILE={HISTORY_FILE}, KEYWORDS={KEYWORDS}")
     logger.info(f"Using TELEGRAM_CHAT_IDS={TELEGRAM_CHAT_IDS}")
 
